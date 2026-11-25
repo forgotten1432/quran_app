@@ -20,7 +20,7 @@ Flutter ile yazılmış, PDF tabanlı Kur'an-ı Kerim mushaf okuyucusu (Uygurca 
 - **Kaldığın yerden devam:** açılışta son okunan sure ve sayfa kartı
 - **Hatim takibi:** ekranda 3 sn kalan sayfa okundu sayılır; ilerleme yüzdesi,
   okunmamış ilk sayfaya gitme, tamamlanan hatimlerin listesi
-- **Günlük hatırlatma** (Android / iOS / macOS): seçilen saatte bildirim
+- **Günlük hatırlatma** (yalnızca yerel Android / iOS / macOS derlemelerinde; PWA'da yok)
 - **Web'de çevrimdışı kullanım:** PDF ilk açılışta önbelleğe alınır (`web/sw.js`),
   sonra internetsiz açılır
 
@@ -39,4 +39,5 @@ flutter run            # veya: flutter run -d chrome
 
 - **GitHub Pages:** `main` dalına her push'ta `.github/workflows/pages.yml` web sürümünü derleyip yayınlar.
   İlk kurulumda depo ayarlarında *Settings → Pages → Source: GitHub Actions* seçilmelidir.
-- **Android / macOS:** `.github/workflows/release.yml` APK ve DMG üretir; `v*` etiketlerinde GitHub Release oluşturur.
+- Uygulama yalnızca **PWA** olarak dağıtılır (Android/macOS derlemesi yapılmıyor).
+  Telefonda tarayıcı menüsünden *Ana ekrana ekle* ile uygulama gibi kurulabilir.
