@@ -258,6 +258,10 @@ class _QuranReaderState extends State<QuranReader> {
   bool _isMenuVisible = false;
   bool _isZoomed = false;
 
+  /// Menü bu süre boyunca etkileşim olmazsa kendiliğinden gizlenir.
+  static const Duration menuAutoHideDelay = Duration(seconds: 5);
+  Timer? _menuHideTimer;
+
   DateTime? _currentBackPressTime;
   List<int> _bookmarks = [];
 
@@ -275,6 +279,7 @@ class _QuranReaderState extends State<QuranReader> {
 
   @override
   void dispose() {
+    _menuHideTimer?.cancel();
     _pageController?.dispose();
     _transformationController
       ..removeListener(_onTransformChanged)
@@ -282,6 +287,29 @@ class _QuranReaderState extends State<QuranReader> {
     _focusNode.dispose();
     _document?.dispose();
     super.dispose();
+  }
+
+  // ───── Menü görünürlüğü ve otomatik gizleme ─────
+  void _setMenuVisible(bool visible) {
+    _menuHideTimer?.cancel();
+    if (visible) _restartMenuHideTimer();
+    if (visible != _isMenuVisible) {
+      setState(() => _isMenuVisible = visible);
+    }
+  }
+
+  /// Menüyle her etkileşimde (dokunma, kaydırıcı) süre baştan başlar.
+  void _restartMenuHideTimer() {
+    _menuHideTimer?.cancel();
+    _menuHideTimer = Timer(menuAutoHideDelay, () {
+      if (!mounted || !_isMenuVisible) return;
+      // Üstte bir dialog açıksa (sure listesi vb.) menüyü kapatma, bekle.
+      if (ModalRoute.of(context)?.isCurrent == false) {
+        _restartMenuHideTimer();
+        return;
+      }
+      setState(() => _isMenuVisible = false);
+    });
   }
 
   void _onTransformChanged() {
@@ -450,6 +478,7 @@ class _QuranReaderState extends State<QuranReader> {
       );
       if (old != null) {
         _isMenuVisible = false;
+        _menuHideTimer?.cancel();
         WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
       }
     }
@@ -459,6 +488,7 @@ class _QuranReaderState extends State<QuranReader> {
   void _goToPage(int mushafPageNumber) {
     final page = mushafPageNumber.clamp(1, _pageCount);
 
+    _menuHideTimer?.cancel();
     setState(() {
       _currentMushafPage = page;
       _isMenuVisible = false;
@@ -861,7 +891,7 @@ class _QuranReaderState extends State<QuranReader> {
         const SingleActivator(LogicalKeyboardKey.keyG): _showGoToPageDialog,
         const SingleActivator(LogicalKeyboardKey.keyB): _toggleBookmark,
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_isMenuVisible) setState(() => _isMenuVisible = false);
+          _setMenuVisible(false);
         },
       };
 
@@ -934,7 +964,7 @@ class _QuranReaderState extends State<QuranReader> {
           GestureDetector(
             onTap: () {
               _focusNode.requestFocus();
-              setState(() => _isMenuVisible = !_isMenuVisible);
+              _setMenuVisible(!_isMenuVisible);
             },
             onDoubleTapDown: _handleDoubleTapDown,
             onDoubleTap: _handleDoubleTap,
@@ -965,8 +995,22 @@ class _QuranReaderState extends State<QuranReader> {
               },
             ),
           ),
-          _buildTopMenu(mediaQuery),
-          _buildBottomMenu(mediaQuery, maxPage, isBookmarked),
+          // Menülere dokunulduğunda otomatik gizleme süresi yenilenir.
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              if (_isMenuVisible) _restartMenuHideTimer();
+            },
+            onPointerMove: (_) {
+              if (_isMenuVisible) _restartMenuHideTimer();
+            },
+            child: Stack(
+              children: [
+                _buildTopMenu(mediaQuery),
+                _buildBottomMenu(mediaQuery, maxPage, isBookmarked),
+              ],
+            ),
+          ),
         ],
       ),
     );
