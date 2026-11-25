@@ -1,5 +1,5 @@
 name: quran_app
-description: "A new Flutter project."
+description: "قۇرئان كەرىم - Kur'an-ı Kerim mushaf okuyucu (Android, macOS, Web)."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,12 +31,10 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # Senin bilgisayarına uyumlu versiyon (1.1.4 yerine bunu yazdık):
-  pdfrx: ^2.2.24
+  pdfrx: ^2.13.1
   
   # Yardımcılar:
-  shared_preferences: ^2.2.2
-  path_provider: ^2.1.2
+  shared_preferences: ^2.5.3
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

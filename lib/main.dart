@@ -1,17 +1,29 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/quran_index.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   pdfrxFlutterInitialize();
+  if (!kIsWeb) {
+    // Tam ekran okuma modu (build içinde her seferinde çağrılmamalı).
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.home = const QuranReader()});
+
+  /// Testlerde farklı bir ana ekran verebilmek için.
+  final Widget home;
 
   // Renk paleti - merkezi tanımlama
   static const Color primaryColor = Color(0xFF00897B); // Teal 600
@@ -24,8 +36,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'قۇرئان كەرىم',
@@ -33,7 +43,6 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: primaryColor,
         useMaterial3: true,
         scaffoldBackgroundColor: bgColor,
-        fontFamily: 'Roboto',
         dialogTheme: DialogThemeData(
           backgroundColor: bgColor,
           shape:
@@ -59,26 +68,32 @@ class MyApp extends StatelessWidget {
           child: child!,
         );
       },
-      home: const SplashScreen(),
+      home: home,
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// SPLASH SCREEN - Animasyonlu
+// AÇILIŞ / YÜKLEME EKRANI - Animasyonlu
 // ═══════════════════════════════════════════════════════
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+/// PDF yüklenirken gösterilen açılış ekranı.
+///
+/// [progress] null ise belirsiz ilerleme gösterilir; 0..1 arası ise yüzde.
+class SplashView extends StatefulWidget {
+  const SplashView({super.key, this.progress, this.downloadedBytes});
+
+  final double? progress;
+  final int? downloadedBytes;
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  State<SplashView> createState() => _SplashViewState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _SplashViewState extends State<SplashView>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<double> _fadeAnim;
-  late Animation<double> _scaleAnim;
+  late final AnimationController _animController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<double> _scaleAnim;
 
   @override
   void initState() {
@@ -87,32 +102,11 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
-
-    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeIn),
-    );
-
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeIn);
     _scaleAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(parent: _animController, curve: Curves.elasticOut),
     );
-
     _animController.forward();
-
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const QuranReader(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 500),
-          ),
-        );
-      }
-    });
   }
 
   @override
@@ -123,6 +117,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final progress = widget.progress;
+    final downloaded = widget.downloadedBytes;
+    String? progressText;
+    if (progress != null) {
+      progressText = "${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%";
+    } else if (downloaded != null && downloaded > 0) {
+      progressText = "${(downloaded / (1024 * 1024)).toStringAsFixed(1)} MB";
+    }
+
     return Scaffold(
       backgroundColor: MyApp.bgColor,
       body: Center(
@@ -133,7 +136,6 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Dekoratif ikon
                 Container(
                   width: 120,
                   height: 120,
@@ -175,14 +177,38 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                 ),
                 const SizedBox(height: 50),
-                SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    color: MyApp.primaryColor,
-                    backgroundColor: MyApp.primaryColor.withValues(alpha: 0.15),
+                if (progress == null)
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: MyApp.primaryColor,
+                      backgroundColor:
+                          MyApp.primaryColor.withValues(alpha: 0.15),
+                    ),
+                  )
+                else
+                  SizedBox(
+                    width: 200,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 6,
+                        color: MyApp.primaryColor,
+                        backgroundColor:
+                            MyApp.primaryColor.withValues(alpha: 0.15),
+                      ),
+                    ),
                   ),
+                const SizedBox(height: 16),
+                Text(
+                  progressText == null
+                      ? "يۈكلىنىۋاتىدۇ..."
+                      : "يۈكلىنىۋاتىدۇ... $progressText",
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(color: MyApp.textSecondary),
                 ),
               ],
             ),
@@ -199,247 +225,140 @@ class _SplashScreenState extends State<SplashScreen>
 class QuranReader extends StatefulWidget {
   const QuranReader({super.key});
 
+  /// Mushafın 1. sayfasından önceki PDF sayfası sayısı (kapak vb.).
+  static const int pageOffset = 5;
+
+  /// Sayfanın dikeyde hafifçe uzatılma oranı (görsel ayar).
+  static const double stretchFactor = 1.035;
+
+  /// PDF henüz yüklenmemişken varsayılan sayfa sayısı.
+  static const int defaultPageCount = 604;
+
+  static const String _assetPath = 'assets/quran.pdf';
+
   @override
   State<QuranReader> createState() => _QuranReaderState();
 }
 
 class _QuranReaderState extends State<QuranReader> {
-  final int pageOffset = 5;
-  final double stretchFactor = 1.035;
-
   PageController? _pageController;
+  Orientation? _controllerOrientation;
   final TransformationController _transformationController =
       TransformationController();
+  final FocusNode _focusNode = FocusNode(debugLabel: 'reader');
   TapDownDetails? _doubleTapDetails;
 
   PdfDocument? _document;
-  int _totalPages = 0;
+  int _totalPdfPages = 0;
   int _currentMushafPage = 1;
   bool _isLoading = true;
+  double? _loadProgress;
+  int? _downloadedBytes;
   double _pageAspectRatio = 1.41;
-  Orientation? _lastOrientation;
   bool _isMenuVisible = false;
   bool _isZoomed = false;
 
-  DateTime? currentBackPressTime;
-  List<String> _bookmarks = [];
+  DateTime? _currentBackPressTime;
+  List<int> _bookmarks = [];
 
-  // --- SURE LİSTESİ ---
-  final List<Map<String, dynamic>> surahs = [
-    {"name": "1. الفاتحة", "page": 1},
-    {"name": "2. البقرة", "page": 2},
-    {"name": "3. آل عمران", "page": 50},
-    {"name": "4. النساء", "page": 77},
-    {"name": "5. المائدة", "page": 106},
-    {"name": "6. الأنعام", "page": 128},
-    {"name": "7. الأعراف", "page": 151},
-    {"name": "8. الأنفال", "page": 177},
-    {"name": "9. التوبة", "page": 187},
-    {"name": "10. يونس", "page": 208},
-    {"name": "11. هود", "page": 221},
-    {"name": "12. يوسف", "page": 235},
-    {"name": "13. الرعد", "page": 249},
-    {"name": "14. إبراهيم", "page": 255},
-    {"name": "15. الحجر", "page": 261},
-    {"name": "16. النحل", "page": 267},
-    {"name": "17. الإسراء", "page": 282},
-    {"name": "18. الكهف", "page": 293},
-    {"name": "19. مريم", "page": 305},
-    {"name": "20. طه", "page": 312},
-    {"name": "21. الأنبياء", "page": 322},
-    {"name": "22. الحج", "page": 331},
-    {"name": "23. المؤمنون", "page": 342},
-    {"name": "24. النور", "page": 350},
-    {"name": "25. الفرقان", "page": 359},
-    {"name": "26. الشعراء", "page": 367},
-    {"name": "27. النمل", "page": 376},
-    {"name": "28. القصص", "page": 385},
-    {"name": "29. العنكبوت", "page": 396},
-    {"name": "30. الروم", "page": 404},
-    {"name": "31. لقمان", "page": 411},
-    {"name": "32. السجدة", "page": 415},
-    {"name": "33. الأحزاب", "page": 418},
-    {"name": "34. سبأ", "page": 428},
-    {"name": "35. فاطر", "page": 434},
-    {"name": "36. يس", "page": 440},
-    {"name": "37. الصافات", "page": 445},
-    {"name": "38. ص", "page": 452},
-    {"name": "39. الزمر", "page": 458},
-    {"name": "40. غافر", "page": 467},
-    {"name": "41. فصلت", "page": 477},
-    {"name": "42. الشورى", "page": 483},
-    {"name": "43. الزخرف", "page": 489},
-    {"name": "44. الدخان", "page": 495},
-    {"name": "45. الجاثية", "page": 498},
-    {"name": "46. الأحقاف", "page": 502},
-    {"name": "47. محمد", "page": 506},
-    {"name": "48. الفتح", "page": 511},
-    {"name": "49. الحجرات", "page": 515},
-    {"name": "50. ق", "page": 518},
-    {"name": "51. الذاريات", "page": 520},
-    {"name": "52. الطور", "page": 523},
-    {"name": "53. النجم", "page": 526},
-    {"name": "54. القمر", "page": 528},
-    {"name": "55. الرحمن", "page": 531},
-    {"name": "56. الواقعة", "page": 534},
-    {"name": "57. الحديد", "page": 537},
-    {"name": "58. المجادلة", "page": 542},
-    {"name": "59. الحشر", "page": 545},
-    {"name": "60. الممتحنة", "page": 549},
-    {"name": "61. الصف", "page": 551},
-    {"name": "62. الجمعة", "page": 553},
-    {"name": "63. المنافقون", "page": 554},
-    {"name": "64. التغابن", "page": 556},
-    {"name": "65. الطلاق", "page": 558},
-    {"name": "66. التحريم", "page": 560},
-    {"name": "67. الملك", "page": 562},
-    {"name": "68. القلم", "page": 564},
-    {"name": "69. الحاقة", "page": 567},
-    {"name": "70. المعارج", "page": 569},
-    {"name": "71. نوح", "page": 571},
-    {"name": "72. الجن", "page": 573},
-    {"name": "73. المزمل", "page": 576},
-    {"name": "74. المدثر", "page": 578},
-    {"name": "75. القيامة", "page": 580},
-    {"name": "76. الإنسان", "page": 582},
-    {"name": "77. المرسلات", "page": 584},
-    {"name": "78. النبأ", "page": 586},
-    {"name": "79. النازعات", "page": 587},
-    {"name": "80. عبس", "page": 589},
-    {"name": "81. التكوير", "page": 590},
-    {"name": "82. الانفطار", "page": 591},
-    {"name": "83. المطففين", "page": 592},
-    {"name": "84. الانشقاق", "page": 594},
-    {"name": "85. البروج", "page": 595},
-    {"name": "86. الطارق", "page": 596},
-    {"name": "87. الأعلى", "page": 597},
-    {"name": "88. الغاشية", "page": 597},
-    {"name": "89. الفجر", "page": 598},
-    {"name": "90. البلد", "page": 600},
-    {"name": "91. الشمس", "page": 600},
-    {"name": "92. الليل", "page": 601},
-    {"name": "93. الضحى", "page": 602},
-    {"name": "94. الشرح", "page": 602},
-    {"name": "95. التين", "page": 603},
-    {"name": "96. العلق", "page": 603},
-    {"name": "97. القدر", "page": 604},
-    {"name": "98. البينة", "page": 604},
-    {"name": "99. الزلزلة", "page": 605},
-    {"name": "100. العاديات", "page": 605},
-    {"name": "101. القارعة", "page": 606},
-    {"name": "102. التكاثر", "page": 606},
-    {"name": "103. العصر", "page": 607},
-    {"name": "104. الهمزة", "page": 607},
-    {"name": "105. الفيل", "page": 607},
-    {"name": "106. قريش", "page": 608},
-    {"name": "107. الماعون", "page": 608},
-    {"name": "108. الكوثر", "page": 608},
-    {"name": "109. الكافرون", "page": 608},
-    {"name": "110. النصر", "page": 609},
-    {"name": "111. المسد", "page": 609},
-    {"name": "112. الإخلاص", "page": 609},
-    {"name": "113. الفلق", "page": 610},
-    {"name": "114. الناس", "page": 610},
-  ];
-
-  final List<Map<String, dynamic>> juzs = [
-    {"name": "الجزء 1", "page": 2},
-    {"name": "الجزء 2", "page": 22},
-    {"name": "الجزء 3", "page": 42},
-    {"name": "الجزء 4", "page": 62},
-    {"name": "الجزء 5", "page": 82},
-    {"name": "الجزء 6", "page": 102},
-    {"name": "الجزء 7", "page": 122},
-    {"name": "الجزء 8", "page": 142},
-    {"name": "الجزء 9", "page": 162},
-    {"name": "الجزء 10", "page": 182},
-    {"name": "الجزء 11", "page": 202},
-    {"name": "الجزء 12", "page": 222},
-    {"name": "الجزء 13", "page": 242},
-    {"name": "الجزء 14", "page": 262},
-    {"name": "الجزء 15", "page": 282},
-    {"name": "الجزء 16", "page": 302},
-    {"name": "الجزء 17", "page": 322},
-    {"name": "الجزء 18", "page": 342},
-    {"name": "الجزء 19", "page": 362},
-    {"name": "الجزء 20", "page": 382},
-    {"name": "الجزء 21", "page": 402},
-    {"name": "الجزء 22", "page": 422},
-    {"name": "الجزء 23", "page": 442},
-    {"name": "الجزء 24", "page": 462},
-    {"name": "الجزء 25", "page": 482},
-    {"name": "الجزء 26", "page": 502},
-    {"name": "الجزء 27", "page": 522},
-    {"name": "الجزء 28", "page": 542},
-    {"name": "الجزء 29", "page": 562},
-    {"name": "الجزء 30", "page": 586},
-  ];
+  /// Görüntülenebilir mushaf sayfası sayısı (PDF sayfaları - ofset).
+  int get _pageCount => _totalPdfPages > QuranReader.pageOffset
+      ? _totalPdfPages - QuranReader.pageOffset
+      : QuranReader.defaultPageCount;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
+    _transformationController.addListener(_onTransformChanged);
     _init();
-
-    _transformationController.addListener(() {
-      final scale = _transformationController.value.getMaxScaleOnAxis();
-      if (scale > 1.05 && !_isZoomed) {
-        setState(() {
-          _isZoomed = true;
-        });
-      } else if (scale <= 1.05 && _isZoomed) {
-        setState(() {
-          _isZoomed = false;
-        });
-      }
-    });
   }
 
   @override
   void dispose() {
     _pageController?.dispose();
-    _transformationController.dispose();
+    _transformationController
+      ..removeListener(_onTransformChanged)
+      ..dispose();
+    _focusNode.dispose();
+    _document?.dispose();
     super.dispose();
+  }
+
+  void _onTransformChanged() {
+    final zoomed = _transformationController.value.getMaxScaleOnAxis() > 1.05;
+    if (zoomed != _isZoomed) {
+      setState(() => _isZoomed = zoomed);
+    }
+  }
+
+  Future<PdfDocument> _openDocument() {
+    if (kIsWeb) {
+      // Web'de dosya ağdan indirilir; ilerleme gösterebilmek için URI ile aç.
+      final uri = Uri.base.resolve('assets/${QuranReader._assetPath}');
+      return PdfDocument.openUri(
+        uri,
+        progressCallback: (downloaded, [total]) {
+          if (!mounted) return;
+          setState(() {
+            _downloadedBytes = downloaded;
+            _loadProgress =
+                (total != null && total > 0) ? downloaded / total : null;
+          });
+        },
+      );
+    }
+    return PdfDocument.openAsset(QuranReader._assetPath);
   }
 
   Future<void> _init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _bookmarks = prefs.getStringList('bookmarks') ?? [];
-
+      final bookmarks = (prefs.getStringList('bookmarks') ?? [])
+          .map(int.tryParse)
+          .whereType<int>()
+          .toSet()
+          .toList()
+        ..sort();
       final savedPage = prefs.getInt('last_page') ?? 1;
-      _currentMushafPage = savedPage;
 
-      _document = await PdfDocument.openAsset('assets/quran.pdf');
-
-      if (_document != null && _document!.pages.isNotEmpty) {
-        final firstPage = _document!.pages[0];
-        _pageAspectRatio = firstPage.height / firstPage.width;
+      final document = await _openDocument();
+      if (!mounted) {
+        document.dispose();
+        return;
       }
 
-      if (mounted) {
-        setState(() {
-          _totalPages = _document!.pages.length;
-          _isLoading = false;
-        });
-
-        int targetIndex = savedPage - 1;
-        if (_pageController != null && _pageController!.hasClients) {
-          _pageController!.jumpToPage(targetIndex);
-        } else {
-          _pageController?.dispose();
-          _pageController = PageController(initialPage: targetIndex);
+      double aspectRatio = _pageAspectRatio;
+      if (document.pages.isNotEmpty) {
+        final firstPage = document.pages.first;
+        if (firstPage.width > 0) {
+          aspectRatio = firstPage.height / firstPage.width;
         }
       }
+
+      setState(() {
+        _document = document;
+        _totalPdfPages = document.pages.length;
+        _pageAspectRatio = aspectRatio;
+        _bookmarks = bookmarks.where((p) => p >= 1 && p <= _pageCount).toList();
+        _currentMushafPage = savedPage.clamp(1, _pageCount);
+        _isLoading = false;
+      });
     } catch (e) {
       debugPrint("PDF yükleme hatası: $e");
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         _showErrorSnackBar("PDF يۈكلەنمىدى، قايتا سىناڭ");
       }
     }
+  }
+
+  void _retry() {
+    setState(() {
+      _isLoading = true;
+      _loadProgress = null;
+      _downloadedBytes = null;
+    });
+    _init();
   }
 
   void _showErrorSnackBar(String message) {
@@ -462,8 +381,9 @@ class _QuranReaderState extends State<QuranReader> {
   void _showSuccessSnackBar(String message,
       {IconData icon = Icons.check_circle}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -480,22 +400,28 @@ class _QuranReaderState extends State<QuranReader> {
     );
   }
 
-  Future<void> _toggleBookmark() async {
+  Future<void> _saveBookmarks() async {
     final prefs = await SharedPreferences.getInstance();
-    String pageStr = _currentMushafPage.toString();
+    await prefs.setStringList(
+        'bookmarks', _bookmarks.map((p) => p.toString()).toList());
+  }
 
+  Future<void> _toggleBookmark() async {
+    final page = _currentMushafPage;
+    final removed = _bookmarks.contains(page);
     setState(() {
-      if (_bookmarks.contains(pageStr)) {
-        _bookmarks.remove(pageStr);
-        _showSuccessSnackBar("بەلگە ئېلىۋېتىلدى", icon: Icons.bookmark_remove);
+      if (removed) {
+        _bookmarks.remove(page);
       } else {
-        _bookmarks.add(pageStr);
-        _showSuccessSnackBar("بەت ساقلاندى", icon: Icons.bookmark_added);
+        _bookmarks = [..._bookmarks, page]..sort();
       }
-      _bookmarks.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
     });
-
-    await prefs.setStringList('bookmarks', _bookmarks);
+    if (removed) {
+      _showSuccessSnackBar("بەلگە ئېلىۋېتىلدى", icon: Icons.bookmark_remove);
+    } else {
+      _showSuccessSnackBar("بەت ساقلاندى", icon: Icons.bookmark_added);
+    }
+    await _saveBookmarks();
   }
 
   Future<void> _saveLastPage(int mushafPage) async {
@@ -503,38 +429,62 @@ class _QuranReaderState extends State<QuranReader> {
     await prefs.setInt('last_page', mushafPage);
   }
 
+  // ───── Sayfa <-> PageView indeksi dönüşümleri ─────
+  int _indexForPage(int mushafPage, bool isLandscape) =>
+      isLandscape ? (mushafPage - 1) ~/ 2 : mushafPage - 1;
+
+  int _pageForIndex(int index, bool isLandscape) =>
+      isLandscape ? index * 2 + 1 : index + 1;
+
+  bool get _isLandscape => _controllerOrientation == Orientation.landscape;
+
+  /// Yön değiştiğinde (veya ilk kez) PageController'ı mevcut sayfaya göre kurar.
+  /// Eski controller, ona bağlı PageView ağaçtan ayrıldıktan sonra atılır.
+  PageController _controllerFor(Orientation orientation) {
+    if (_pageController == null || _controllerOrientation != orientation) {
+      final old = _pageController;
+      _controllerOrientation = orientation;
+      _pageController = PageController(
+        initialPage: _indexForPage(
+            _currentMushafPage, orientation == Orientation.landscape),
+      );
+      if (old != null) {
+        _isMenuVisible = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+      }
+    }
+    return _pageController!;
+  }
+
   void _goToPage(int mushafPageNumber) {
-    if (mushafPageNumber < 1) mushafPageNumber = 1;
-
-    if (_totalPages > 0 && mushafPageNumber > _totalPages) {
-      mushafPageNumber = _totalPages;
-    } else if (_totalPages == 0 && mushafPageNumber > 604) {
-      mushafPageNumber = 604;
-    }
-
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
-    }
+    final page = mushafPageNumber.clamp(1, _pageCount);
 
     setState(() {
-      _currentMushafPage = mushafPageNumber;
+      _currentMushafPage = page;
       _isMenuVisible = false;
     });
 
-    if (_pageController != null && _pageController!.hasClients) {
-      bool isLandscape =
-          MediaQuery.of(context).orientation == Orientation.landscape;
-      int targetIndex;
-      if (isLandscape) {
-        targetIndex = ((mushafPageNumber - 1) / 2).floor();
-      } else {
-        targetIndex = mushafPageNumber - 1;
-      }
-      _pageController!.jumpToPage(targetIndex);
+    final controller = _pageController;
+    if (controller != null && controller.hasClients) {
+      controller.jumpToPage(_indexForPage(page, _isLandscape));
     }
-
-    _saveLastPage(mushafPageNumber);
+    _saveLastPage(page);
   }
+
+  /// Okuma yönünde [delta] kadar (spread) ilerler.
+  void _turnPage(int delta) {
+    final controller = _pageController;
+    if (controller == null || !controller.hasClients || _isZoomed) return;
+    final current = controller.page?.round() ?? 0;
+    final itemCount = _itemCount(_isLandscape);
+    final target = (current + delta).clamp(0, itemCount - 1);
+    if (target == current) return;
+    controller.animateToPage(target,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  }
+
+  int _itemCount(bool isLandscape) =>
+      isLandscape ? (_pageCount / 2).ceil() : _pageCount;
 
   void _handleDoubleTapDown(TapDownDetails details) {
     _doubleTapDetails = details;
@@ -543,68 +493,37 @@ class _QuranReaderState extends State<QuranReader> {
   void _handleDoubleTap() {
     if (_transformationController.value != Matrix4.identity()) {
       _transformationController.value = Matrix4.identity();
-    } else {
-      final position = _doubleTapDetails!.localPosition;
-      var scale = 1.75;
-
-      final x = -position.dx * (scale - 1);
-      final y = -position.dy * (scale - 1);
-
-      final zoomed = Matrix4.identity()
-        ..translateByDouble(x, y, 0.0, 0.0)
-        ..scaleByDouble(scale, scale, 1.0, 1.0);
-
-      _transformationController.value = zoomed;
+      return;
     }
-  }
-
-  String _getCurrentSurahName() {
-    for (int i = surahs.length - 1; i >= 0; i--) {
-      if (_currentMushafPage >= surahs[i]['page']) {
-        return surahs[i]['name'];
-      }
-    }
-    return surahs[0]['name'];
-  }
-
-  String _getCurrentJuzName() {
-    for (int i = juzs.length - 1; i >= 0; i--) {
-      if (_currentMushafPage >= juzs[i]['page']) {
-        return juzs[i]['name'];
-      }
-    }
-    return juzs[0]['name'];
-  }
-
-  int findActiveIndex(List<Map<String, dynamic>> items) {
-    for (int i = 0; i < items.length; i++) {
-      if (i == items.length - 1 || items[i + 1]['page'] > _currentMushafPage) {
-        return i;
-      }
-    }
-    return 0;
+    final position = _doubleTapDetails?.localPosition;
+    if (position == null) return;
+    const scale = 1.75;
+    final x = -position.dx * (scale - 1);
+    final y = -position.dy * (scale - 1);
+    _transformationController.value = Matrix4.identity()
+      ..translateByDouble(x, y, 0.0, 1.0)
+      ..scaleByDouble(scale, scale, 1.0, 1.0);
   }
 
   // ───── Liste Dialog (Sûre / Cüz) - Arama destekli ─────
-  void _showListDialog(String title, List<Map<String, dynamic>> items) {
-    int activeIndex = findActiveIndex(items);
+  void _showListDialog(String title, List<QuranSection> items) {
+    final activeIndex = activeSectionIndex(items, _currentMushafPage);
     const double itemHeight = 60.0;
-    final scrollController =
-        ScrollController(initialScrollOffset: activeIndex * itemHeight);
+    final scrollController = ScrollController(
+        initialScrollOffset:
+            (activeIndex - 2).clamp(0, items.length) * itemHeight);
 
-    showDialog(
+    showDialog<int>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         String searchQuery = '';
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final filteredItems = searchQuery.isEmpty
+            final query = searchQuery.trim();
+            final filteredItems = query.isEmpty
                 ? items
-                : items
-                    .where(
-                        (item) => item['name'].toString().contains(searchQuery))
-                    .toList();
+                : items.where((item) => item.name.contains(query)).toList();
 
             return AlertDialog(
               title: Column(
@@ -615,12 +534,14 @@ class _QuranReaderState extends State<QuranReader> {
                           color: MyApp.primaryColor,
                           fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
-                  // Arama alanı
                   TextField(
                     onChanged: (value) {
-                      setDialogState(() {
-                        searchQuery = value;
-                      });
+                      setDialogState(() => searchQuery = value);
+                    },
+                    onSubmitted: (_) {
+                      if (filteredItems.isNotEmpty) {
+                        Navigator.pop(dialogContext, filteredItems.first.page);
+                      }
                     },
                     decoration: InputDecoration(
                       hintText: "ئىزدەش...",
@@ -644,22 +565,20 @@ class _QuranReaderState extends State<QuranReader> {
                 ],
               ),
               content: SizedBox(
-                width: double.maxFinite,
+                width: 400,
                 height: 400,
                 child: filteredItems.isEmpty
                     ? const Center(
                         child: Text("نەتىجە تېپىلمىدى",
                             style: TextStyle(color: MyApp.textSecondary)))
                     : ListView.separated(
-                        controller:
-                            searchQuery.isEmpty ? scrollController : null,
+                        controller: query.isEmpty ? scrollController : null,
                         itemCount: filteredItems.length,
                         separatorBuilder: (ctx, i) =>
                             Divider(height: 1, color: Colors.grey.shade200),
                         itemBuilder: (context, index) {
                           final item = filteredItems[index];
-                          bool isActive = searchQuery.isEmpty &&
-                              items.indexOf(item) == activeIndex;
+                          final isActive = identical(item, items[activeIndex]);
                           return Container(
                             decoration: BoxDecoration(
                               color: isActive
@@ -669,7 +588,7 @@ class _QuranReaderState extends State<QuranReader> {
                             ),
                             child: ListTile(
                               title: Text(
-                                item['name'],
+                                item.name,
                                 style: TextStyle(
                                   fontWeight: isActive
                                       ? FontWeight.bold
@@ -689,7 +608,7 @@ class _QuranReaderState extends State<QuranReader> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  "${item['page']}-بەت",
+                                  "${item.page}-بەت",
                                   style: TextStyle(
                                     color: isActive
                                         ? MyApp.primaryColor
@@ -698,7 +617,8 @@ class _QuranReaderState extends State<QuranReader> {
                                   ),
                                 ),
                               ),
-                              onTap: () => _goToPage(item['page']),
+                              onTap: () =>
+                                  Navigator.pop(dialogContext, item.page),
                             ),
                           );
                         },
@@ -706,7 +626,7 @@ class _QuranReaderState extends State<QuranReader> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: const Text("تاقاش",
                       style: TextStyle(color: MyApp.primaryColor)),
                 )
@@ -715,72 +635,86 @@ class _QuranReaderState extends State<QuranReader> {
           },
         );
       },
-    );
+    ).then((page) {
+      scrollController.dispose();
+      if (page != null) _goToPage(page);
+    });
   }
 
   // ───── Sayfa Atla Dialogu ─────
   void _showGoToPageDialog() {
-    TextEditingController controller = TextEditingController();
-    String hintText = _totalPages > 0 ? "1 - $_totalPages" : "1 - 604";
+    final controller = TextEditingController();
+    final maxPage = _pageCount;
 
-    showDialog(
+    showDialog<int>(
       context: context,
-      builder: (context) {
-        void handleSubmit() {
-          int? page = int.tryParse(controller.text);
-          if (page != null) {
-            _goToPage(page);
+      builder: (dialogContext) {
+        String? errorText;
+        return StatefulBuilder(builder: (context, setDialogState) {
+          void handleSubmit() {
+            final page = int.tryParse(controller.text.trim());
+            if (page == null || page < 1 || page > maxPage) {
+              setDialogState(() => errorText = "1 - $maxPage");
+              return;
+            }
+            Navigator.pop(dialogContext, page);
           }
-        }
 
-        return AlertDialog(
-          title: const Text("بەتكە يۆتكىلىش",
-              style: TextStyle(
-                  color: MyApp.primaryColor, fontWeight: FontWeight.bold)),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            onSubmitted: (_) => handleSubmit(),
-            decoration: InputDecoration(
-              hintText: hintText,
-              prefixIcon: const Icon(Icons.numbers, color: MyApp.primaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    const BorderSide(color: MyApp.primaryColor, width: 1.5),
+          return AlertDialog(
+            title: const Text("بەتكە يۆتكىلىش",
+                style: TextStyle(
+                    color: MyApp.primaryColor, fontWeight: FontWeight.bold)),
+            content: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              autofocus: true,
+              onSubmitted: (_) => handleSubmit(),
+              decoration: InputDecoration(
+                hintText: "1 - $maxPage",
+                errorText: errorText,
+                prefixIcon:
+                    const Icon(Icons.numbers, color: MyApp.primaryColor),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide:
+                      const BorderSide(color: MyApp.primaryColor, width: 1.5),
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("بىكار قىلىش",
-                  style: TextStyle(color: MyApp.textSecondary)),
-            ),
-            FilledButton(
-              onPressed: handleSubmit,
-              style: FilledButton.styleFrom(
-                backgroundColor: MyApp.primaryColor,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text("بىكار قىلىش",
+                    style: TextStyle(color: MyApp.textSecondary)),
               ),
-              child: const Text("يۆتكىلىش"),
-            ),
-          ],
-        );
+              FilledButton(
+                onPressed: handleSubmit,
+                style: FilledButton.styleFrom(
+                  backgroundColor: MyApp.primaryColor,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text("يۆتكىلىش"),
+              ),
+            ],
+          );
+        });
       },
-    );
+    ).then((page) {
+      controller.dispose();
+      if (page != null) _goToPage(page);
+    });
   }
 
   // ───── Bookmark Dialog - StatefulBuilder ile anlık güncelleme ─────
   void _showBookmarksDialog() {
-    showDialog(
+    showDialog<int>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
@@ -813,7 +747,7 @@ class _QuranReaderState extends State<QuranReader> {
                 ],
               ),
               content: SizedBox(
-                width: double.maxFinite,
+                width: 400,
                 height: 350,
                 child: _bookmarks.isEmpty
                     ? Center(
@@ -833,15 +767,9 @@ class _QuranReaderState extends State<QuranReader> {
                         separatorBuilder: (ctx, i) =>
                             Divider(height: 1, color: Colors.grey.shade200),
                         itemBuilder: (context, index) {
-                          final pageNum = int.parse(_bookmarks[index]);
-                          // Sûre ismini bul
-                          String surahName = "";
-                          for (int i = surahs.length - 1; i >= 0; i--) {
-                            if (pageNum >= surahs[i]['page']) {
-                              surahName = surahs[i]['name'];
-                              break;
-                            }
-                          }
+                          final pageNum = _bookmarks[index];
+                          final surahName =
+                              sectionForPage(surahs, pageNum).name;
 
                           return ListTile(
                             leading: Container(
@@ -860,7 +788,7 @@ class _QuranReaderState extends State<QuranReader> {
                               ),
                               child: Center(
                                 child: Text(
-                                  _bookmarks[index],
+                                  "$pageNum",
                                   style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -868,27 +796,22 @@ class _QuranReaderState extends State<QuranReader> {
                                 ),
                               ),
                             ),
-                            title: Text("${_bookmarks[index]}-بەت",
+                            title: Text("$pageNum-بەت",
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600)),
                             subtitle: Text(surahName,
                                 style: const TextStyle(
                                     fontSize: 13, color: MyApp.textSecondary)),
-                            onTap: () =>
-                                _goToPage(int.parse(_bookmarks[index])),
+                            onTap: () => Navigator.pop(dialogContext, pageNum),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete_outline,
                                   color: Colors.redAccent),
                               onPressed: () async {
-                                String pageToRemove = _bookmarks[index];
-                                final prefs =
-                                    await SharedPreferences.getInstance();
                                 setState(() {
-                                  _bookmarks.remove(pageToRemove);
+                                  _bookmarks = [..._bookmarks]..remove(pageNum);
                                 });
-                                await prefs.setStringList(
-                                    'bookmarks', _bookmarks);
-                                setDialogState(() {}); // Dialog'u güncelle
+                                setDialogState(() {});
+                                await _saveBookmarks();
                               },
                             ),
                           );
@@ -897,7 +820,7 @@ class _QuranReaderState extends State<QuranReader> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: const Text("تاقاش",
                       style: TextStyle(color: MyApp.primaryColor)),
                 )
@@ -906,41 +829,47 @@ class _QuranReaderState extends State<QuranReader> {
           },
         );
       },
-    );
+    ).then((page) {
+      if (page != null) _goToPage(page);
+    });
   }
 
   // ───── Geri tuşu işleyicisi (PopScope uyumlu) ─────
-  Future<bool> _onWillPop() async {
-    DateTime now = DateTime.now();
-    if (currentBackPressTime == null ||
-        now.difference(currentBackPressTime!) > const Duration(seconds: 2)) {
-      currentBackPressTime = now;
+  bool _shouldExitOnBack() {
+    final now = DateTime.now();
+    if (_currentBackPressTime == null ||
+        now.difference(_currentBackPressTime!) > const Duration(seconds: 2)) {
+      _currentBackPressTime = now;
       _showSuccessSnackBar("چىقىش ئۈچۈن قايتا بېسىڭ", icon: Icons.exit_to_app);
       return false;
     }
     return true;
   }
 
+  // ───── Klavye kısayolları (web / masaüstü) ─────
+  // Mushaf sağdan sola okunur: sol ok = sonraki sayfa, sağ ok = önceki sayfa.
+  Map<ShortcutActivator, VoidCallback> get _shortcuts => {
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.pageDown): () => _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.space): () => _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+            _turnPage(-1),
+        const SingleActivator(LogicalKeyboardKey.pageUp): () => _turnPage(-1),
+        const SingleActivator(LogicalKeyboardKey.home): () => _goToPage(1),
+        const SingleActivator(LogicalKeyboardKey.end): () =>
+            _goToPage(_pageCount),
+        const SingleActivator(LogicalKeyboardKey.keyG): _showGoToPageDialog,
+        const SingleActivator(LogicalKeyboardKey.keyB): _toggleBookmark,
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_isMenuVisible) setState(() => _isMenuVisible = false);
+        },
+      };
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        backgroundColor: MyApp.bgColor,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(
-                color: MyApp.primaryColor,
-                backgroundColor: MyApp.primaryColor.withValues(alpha: 0.15),
-              ),
-              const SizedBox(height: 16),
-              const Text("يۈكلىنىۋاتىدۇ...",
-                  style: TextStyle(color: MyApp.textSecondary)),
-            ],
-          ),
-        ),
-      );
+      return SplashView(
+          progress: _loadProgress, downloadedBytes: _downloadedBytes);
     }
 
     if (_document == null) {
@@ -959,12 +888,7 @@ class _QuranReaderState extends State<QuranReader> {
                       color: MyApp.textPrimary)),
               const SizedBox(height: 20),
               FilledButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                  });
-                  _init();
-                },
+                onPressed: _retry,
                 icon: const Icon(Icons.refresh),
                 label: const Text("قايتا سىناش"),
                 style: FilledButton.styleFrom(
@@ -977,389 +901,358 @@ class _QuranReaderState extends State<QuranReader> {
       );
     }
 
-    final screenSize = MediaQuery.of(context).size;
-    bool isBookmarked = _bookmarks.contains(_currentMushafPage.toString());
-    final maxPage = _totalPages > 0 ? _totalPages : 604;
-
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        final shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
-        }
+        if (_shouldExitOnBack()) SystemNavigator.pop();
       },
-      child: OrientationBuilder(builder: (context, orientation) {
-        bool isLandscape = orientation == Orientation.landscape;
+      child: CallbackShortcuts(
+        bindings: _shortcuts,
+        child: Focus(
+          focusNode: _focusNode,
+          autofocus: true,
+          child: OrientationBuilder(builder: (context, orientation) {
+            return _buildReader(context, orientation);
+          }),
+        ),
+      ),
+    );
+  }
 
-        if (_lastOrientation != orientation) {
-          _lastOrientation = orientation;
-          _isMenuVisible = false;
+  Widget _buildReader(BuildContext context, Orientation orientation) {
+    final isLandscape = orientation == Orientation.landscape;
+    final controller = _controllerFor(orientation);
+    final mediaQuery = MediaQuery.of(context);
+    final screenSize = mediaQuery.size;
+    final isBookmarked = _bookmarks.contains(_currentMushafPage);
+    final maxPage = _pageCount;
 
-          int initialIndex;
-          if (isLandscape) {
-            initialIndex = ((_currentMushafPage - 1) / 2).floor();
-          } else {
-            initialIndex = _currentMushafPage - 1;
-          }
+    return Scaffold(
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTap: () {
+              _focusNode.requestFocus();
+              setState(() => _isMenuVisible = !_isMenuVisible);
+            },
+            onDoubleTapDown: _handleDoubleTapDown,
+            onDoubleTap: _handleDoubleTap,
+            child: PageView.builder(
+              physics: _isZoomed
+                  ? const NeverScrollableScrollPhysics()
+                  : const BouncingScrollPhysics(),
+              key: ValueKey(orientation),
+              controller: controller,
+              itemCount: _itemCount(isLandscape),
+              onPageChanged: (index) {
+                final newPage =
+                    _pageForIndex(index, isLandscape).clamp(1, maxPage);
+                setState(() => _currentMushafPage = newPage);
+                _saveLastPage(newPage);
+                _transformationController.value = Matrix4.identity();
+              },
+              itemBuilder: (context, index) {
+                final pageContent = isLandscape
+                    ? _buildSpread(index, screenSize)
+                    : _buildSinglePage(index);
+                return InteractiveViewer(
+                  transformationController: _transformationController,
+                  minScale: 1.0,
+                  maxScale: 5.0,
+                  child: pageContent,
+                );
+              },
+            ),
+          ),
+          _buildTopMenu(mediaQuery),
+          _buildBottomMenu(mediaQuery, maxPage, isBookmarked),
+        ],
+      ),
+    );
+  }
 
-          _pageController?.dispose();
-          _pageController =
-              PageController(initialPage: initialIndex, keepPage: false);
-        }
+  /// Mushaf sayfası -> PDF sayfa numarası (1 tabanlı).
+  int _pdfPageFor(int mushafPage) => mushafPage + QuranReader.pageOffset;
 
-        if (_pageController == null) {
-          int initialIndex = isLandscape
-              ? ((_currentMushafPage - 1) / 2).floor()
-              : (_currentMushafPage - 1);
-          _pageController = PageController(initialPage: initialIndex);
-        }
+  Widget _buildSinglePage(int index) {
+    final mushafPage = _pageForIndex(index, false);
+    if (mushafPage > _pageCount) return const SizedBox.shrink();
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.diagonal3Values(1.0, QuranReader.stretchFactor, 1.0),
+      child: ClipRect(
+        child: Transform.scale(
+          scale: 1.15,
+          child: Center(
+            child: PdfPageView(
+              document: _document!,
+              pageNumber: _pdfPageFor(mushafPage),
+              alignment: Alignment.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-        return Scaffold(
-          body: Stack(
+  /// Yatay mod: sağda tek (ilk) sayfa, solda çift sayfa.
+  Widget _buildSpread(int index, Size screenSize) {
+    final rightMushafPage = _pageForIndex(index, true);
+    final leftMushafPage = rightMushafPage + 1;
+
+    final horizontalPadding =
+        screenSize.shortestSide >= 600 ? screenSize.width * 0.10 : 0.0;
+    // Sayfalar hem genişliğe hem yüksekliğe sığmalı (geniş masaüstü ekranlar).
+    final onePageWidth = [
+      (screenSize.width - horizontalPadding) / 2,
+      screenSize.height / (_pageAspectRatio * QuranReader.stretchFactor),
+    ].reduce((a, b) => a < b ? a : b);
+    final spreadWidth = onePageWidth * 2;
+    final spreadHeight = onePageWidth * _pageAspectRatio;
+
+    Widget pageView(int mushafPage, Alignment alignment) {
+      if (mushafPage > _pageCount) return const SizedBox.shrink();
+      return PdfPageView(
+        document: _document!,
+        pageNumber: _pdfPageFor(mushafPage),
+        alignment: alignment,
+      );
+    }
+
+    return Center(
+      child: Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(1.0, QuranReader.stretchFactor, 1.0),
+        child: Container(
+          width: spreadWidth,
+          height: spreadHeight,
+          color: MyApp.bgColor,
+          child: Row(
+            // RTL içinde ilk çocuk sağda yer alır.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _isMenuVisible = !_isMenuVisible;
-                  });
-                },
-                onDoubleTapDown: _handleDoubleTapDown,
-                onDoubleTap: _handleDoubleTap,
-                child: PageView.builder(
-                  physics: _isZoomed
-                      ? const NeverScrollableScrollPhysics()
-                      : const BouncingScrollPhysics(),
-                  key: ValueKey(orientation),
-                  controller: _pageController,
-                  itemCount:
-                      isLandscape ? (_totalPages / 2).ceil() : _totalPages,
-                  onPageChanged: (index) {
-                    int newPage = isLandscape ? (index * 2) + 1 : index + 1;
-                    setState(() {
-                      _currentMushafPage = newPage;
-                    });
-                    _saveLastPage(newPage);
-                    _transformationController.value = Matrix4.identity();
-                  },
-                  itemBuilder: (context, index) {
-                    Widget pageContent;
+              Expanded(child: pageView(rightMushafPage, Alignment.centerLeft)),
+              Container(width: 2, color: Colors.black12),
+              Expanded(child: pageView(leftMushafPage, Alignment.centerRight)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                    if (isLandscape) {
-                      // YATAY MOD (TABLET & TELEFON İÇİN)
-                      int rightPageIndex = (index * 2);
-                      int leftPageIndex = (index * 2) + 1;
-                      int pdfPageRight = rightPageIndex + pageOffset + 1;
-                      int pdfPageLeft = leftPageIndex + pageOffset + 1;
-
-                      double horizontalPadding = 0;
-                      if (screenSize.shortestSide >= 600) {
-                        horizontalPadding = screenSize.width * 0.10;
-                      }
-
-                      double availableWidth =
-                          screenSize.width - horizontalPadding;
-                      double adjustedOnePageWidth = availableWidth / 2;
-                      double calculatedHeight =
-                          (adjustedOnePageWidth * _pageAspectRatio) *
-                              stretchFactor;
-
-                      Widget leftPageWidget = Container();
-                      if (pdfPageLeft <= _totalPages) {
-                        leftPageWidget = PdfPageView(
-                            document: _document!,
-                            pageNumber: pdfPageLeft,
-                            alignment: Alignment.centerRight);
-                      }
-
-                      Widget rightPageWidget = Container();
-                      if (pdfPageRight <= _totalPages) {
-                        rightPageWidget = PdfPageView(
-                            document: _document!,
-                            pageNumber: pdfPageRight,
-                            alignment: Alignment.centerLeft);
-                      }
-
-                      pageContent = Center(
-                        child: Transform(
-                          alignment: Alignment.center,
-                          transform:
-                              Matrix4.diagonal3Values(1.0, stretchFactor, 1.0),
-                          child: Container(
-                            width: availableWidth,
-                            height: calculatedHeight / stretchFactor,
-                            color: MyApp.bgColor,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(child: rightPageWidget),
-                                Container(width: 2, color: Colors.black12),
-                                Expanded(child: leftPageWidget),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    } else {
-                      // DİKEY MOD
-                      int pdfPage = index + pageOffset + 1;
-                      if (pdfPage > _totalPages) {
-                        pageContent = Container();
-                      } else {
-                        pageContent = Transform(
-                          alignment: Alignment.center,
-                          transform:
-                              Matrix4.diagonal3Values(1.0, stretchFactor, 1.0),
-                          child: ClipRect(
-                            child: Transform.scale(
-                              scale: 1.15,
-                              child: Center(
-                                child: PdfPageView(
-                                  document: _document!,
-                                  pageNumber: pdfPage,
-                                  alignment: Alignment.center,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-                    }
-
-                    return InteractiveViewer(
-                      transformationController: _transformationController,
-                      minScale: 1.0,
-                      maxScale: 5.0,
-                      child: pageContent,
-                    );
-                  },
+  Widget _buildTopMenu(MediaQueryData mediaQuery) {
+    final topInset = mediaQuery.padding.top;
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      top: _isMenuVisible ? 0 : -(kToolbarHeight + topInset + 10),
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: EdgeInsets.only(top: topInset),
+        decoration: BoxDecoration(
+          color: MyApp.bgColor.withValues(alpha: 0.97),
+          boxShadow: _isMenuVisible
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : [],
+        ),
+        child: SizedBox(
+          height: kToolbarHeight,
+          child: Row(
+            children: [
+              // Cüz butonu
+              Expanded(
+                child: TextButton.icon(
+                  icon: const Icon(Icons.library_books,
+                      color: MyApp.primaryColor, size: 20),
+                  label: Text(
+                    sectionForPage(juzs, _currentMushafPage).name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: MyApp.primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14),
+                  ),
+                  onPressed: () => _showListDialog("پارىلەر", juzs),
                 ),
               ),
-
-              // ÜST MENÜ
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                top: _isMenuVisible ? 0 : -120,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding:
-                      EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-                  decoration: BoxDecoration(
-                    color: MyApp.bgColor.withValues(alpha: 0.97),
-                    boxShadow: _isMenuVisible
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            )
-                          ]
-                        : [],
-                  ),
-                  child: SizedBox(
-                    height: kToolbarHeight,
-                    child: Row(
-                      children: [
-                        // Cüz butonu
-                        Expanded(
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.library_books,
-                                color: MyApp.primaryColor, size: 20),
-                            label: Text(
-                              _getCurrentJuzName(),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: MyApp.primaryColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14),
-                            ),
-                            onPressed: () => _showListDialog("پارىلەر", juzs),
-                          ),
-                        ),
-                        // Sayfa numarası (tıklanabilir)
-                        InkWell(
-                          onTap: _showGoToPageDialog,
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [MyApp.primaryColor, MyApp.primaryDark],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      MyApp.primaryColor.withValues(alpha: 0.3),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Text(
-                              "$_currentMushafPage",
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                        // Sûre butonu
-                        Expanded(
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.list_alt,
-                                color: MyApp.primaryColor, size: 20),
-                            label: Text(
-                              _getCurrentSurahName(),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: MyApp.primaryColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14),
-                            ),
-                            onPressed: () => _showListDialog("سۈرىلەر", surahs),
-                          ),
+              // Sayfa numarası (tıklanabilir)
+              Tooltip(
+                message: "بەتكە يۆتكىلىش",
+                child: InkWell(
+                  onTap: _showGoToPageDialog,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [MyApp.primaryColor, MyApp.primaryDark],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: MyApp.primaryColor.withValues(alpha: 0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
                         ),
                       ],
+                    ),
+                    child: Text(
+                      "$_currentMushafPage",
+                      style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
               ),
-
-              // ALT MENÜ
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                bottom: _isMenuVisible
-                    ? 0
-                    : -(kToolbarHeight +
-                        50 +
-                        MediaQuery.of(context).padding.bottom),
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding: EdgeInsets.only(
-                      bottom: MediaQuery.of(context).padding.bottom),
-                  decoration: BoxDecoration(
-                    color: MyApp.bgColor.withValues(alpha: 0.97),
-                    boxShadow: _isMenuVisible
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 8,
-                              offset: const Offset(0, -2),
-                            )
-                          ]
-                        : [],
+              // Sûre butonu
+              Expanded(
+                child: TextButton.icon(
+                  icon: const Icon(Icons.list_alt,
+                      color: MyApp.primaryColor, size: 20),
+                  label: Text(
+                    sectionForPage(surahs, _currentMushafPage).name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: MyApp.primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Sayfa slider'ı
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: [
-                            Text("$maxPage",
-                                style: const TextStyle(
-                                    fontSize: 11, color: MyApp.textSecondary)),
-                            Expanded(
-                              child: SliderTheme(
-                                data: SliderThemeData(
-                                  activeTrackColor: MyApp.primaryColor,
-                                  inactiveTrackColor: MyApp.primaryColor
-                                      .withValues(alpha: 0.15),
-                                  thumbColor: MyApp.primaryColor,
-                                  overlayColor: MyApp.primaryColor
-                                      .withValues(alpha: 0.12),
-                                  trackHeight: 3,
-                                  thumbShape: const RoundSliderThumbShape(
-                                      enabledThumbRadius: 7),
-                                ),
-                                child: Slider(
-                                  value: _currentMushafPage
-                                      .toDouble()
-                                      .clamp(1, maxPage.toDouble()),
-                                  min: 1,
-                                  max: maxPage.toDouble(),
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _currentMushafPage = value.round();
-                                    });
-                                  },
-                                  onChangeEnd: (value) {
-                                    _goToPage(value.round());
-                                  },
-                                ),
-                              ),
-                            ),
-                            const Text("1",
-                                style: TextStyle(
-                                    fontSize: 11, color: MyApp.textSecondary)),
-                          ],
-                        ),
-                      ),
-                      // Alt butonlar
-                      SizedBox(
-                        height: kToolbarHeight,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            // Yer imleri
-                            TextButton.icon(
-                              icon: const Icon(Icons.bookmarks_outlined,
-                                  color: MyApp.primaryColor, size: 22),
-                              label: const Text("ساقلانغانلار",
-                                  style: TextStyle(
-                                      color: MyApp.primaryColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13)),
-                              onPressed: _showBookmarksDialog,
-                            ),
-                            // Ayırıcı
-                            Container(
-                              width: 1,
-                              height: 24,
-                              color: Colors.grey.shade300,
-                            ),
-                            // Yer imi ekle/kaldır
-                            TextButton.icon(
-                              icon: Icon(
-                                isBookmarked
-                                    ? Icons.bookmark
-                                    : Icons.bookmark_border,
-                                color: isBookmarked
-                                    ? MyApp.primaryColor
-                                    : MyApp.textSecondary,
-                                size: 22,
-                              ),
-                              label: Text(
-                                isBookmarked ? "بەلگە ئېلىۋېتىش" : "بەت ساقلاش",
-                                style: TextStyle(
-                                    color: isBookmarked
-                                        ? MyApp.primaryColor
-                                        : MyApp.textSecondary,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13),
-                              ),
-                              onPressed: _toggleBookmark,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  onPressed: () => _showListDialog("سۈرىلەر", surahs),
                 ),
               ),
             ],
           ),
-        );
-      }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomMenu(
+      MediaQueryData mediaQuery, int maxPage, bool isBookmarked) {
+    final bottomInset = mediaQuery.padding.bottom;
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      bottom: _isMenuVisible ? 0 : -(kToolbarHeight + 60 + bottomInset),
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        decoration: BoxDecoration(
+          color: MyApp.bgColor.withValues(alpha: 0.97),
+          boxShadow: _isMenuVisible
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  )
+                ]
+              : [],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Sayfa slider'ı. RTL'de slider'ın başı (1) sağdadır.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text("1",
+                      style:
+                          TextStyle(fontSize: 11, color: MyApp.textSecondary)),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: MyApp.primaryColor,
+                        inactiveTrackColor:
+                            MyApp.primaryColor.withValues(alpha: 0.15),
+                        thumbColor: MyApp.primaryColor,
+                        overlayColor:
+                            MyApp.primaryColor.withValues(alpha: 0.12),
+                        trackHeight: 3,
+                        thumbShape:
+                            const RoundSliderThumbShape(enabledThumbRadius: 7),
+                      ),
+                      child: Slider(
+                        value: _currentMushafPage
+                            .toDouble()
+                            .clamp(1, maxPage.toDouble()),
+                        min: 1,
+                        max: maxPage.toDouble(),
+                        divisions: maxPage > 1 ? maxPage - 1 : null,
+                        label: "$_currentMushafPage",
+                        onChanged: (value) {
+                          setState(() => _currentMushafPage = value.round());
+                        },
+                        onChangeEnd: (value) => _goToPage(value.round()),
+                      ),
+                    ),
+                  ),
+                  Text("$maxPage",
+                      style: const TextStyle(
+                          fontSize: 11, color: MyApp.textSecondary)),
+                ],
+              ),
+            ),
+            // Alt butonlar
+            SizedBox(
+              height: kToolbarHeight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.bookmarks_outlined,
+                        color: MyApp.primaryColor, size: 22),
+                    label: const Text("ساقلانغانلار",
+                        style: TextStyle(
+                            color: MyApp.primaryColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13)),
+                    onPressed: _showBookmarksDialog,
+                  ),
+                  Container(
+                    width: 1,
+                    height: 24,
+                    color: Colors.grey.shade300,
+                  ),
+                  TextButton.icon(
+                    icon: Icon(
+                      isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                      color: isBookmarked
+                          ? MyApp.primaryColor
+                          : MyApp.textSecondary,
+                      size: 22,
+                    ),
+                    label: Text(
+                      isBookmarked ? "بەلگە ئېلىۋېتىش" : "بەت ساقلاش",
+                      style: TextStyle(
+                          color: isBookmarked
+                              ? MyApp.primaryColor
+                              : MyApp.textSecondary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13),
+                    ),
+                    onPressed: _toggleBookmark,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

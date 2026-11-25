@@ -1,16 +1,33 @@
-# quran_app
+# قۇرئان كەرىم — Kur'an Okuyucu
 
-A new Flutter project.
+Flutter ile yazılmış, PDF tabanlı Kur'an-ı Kerim mushaf okuyucusu (Uygurca arayüz, sağdan sola).
 
-## Getting Started
+**Web sürümü:** https://forgotten1432.github.io/quran_app/
 
-This project is a starting point for a Flutter application.
+## Özellikler
 
-A few resources to get you started if this is your first Flutter project:
+- Dikey modda tek sayfa, yatay modda / masaüstünde çift sayfa (ekrana sığacak şekilde)
+- Sure ve cüz listesi (aramalı), sayfaya git, kaydırıcı
+- Yer imleri ve son okunan sayfanın hatırlanması
+- Çift dokunuşla / parmakla yakınlaştırma
+- Web/masaüstü klavye kısayolları:
+  `←` / `Space` / `PageDown` sonraki sayfa, `→` / `PageUp` önceki sayfa,
+  `Home` / `End` ilk / son sayfa, `G` sayfaya git, `B` yer imi, `Esc` menüyü kapat
+- Web'de PDF indirme ilerlemesi (yüzde) gösterilir
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Geliştirme
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+`assets/quran.pdf` (~200 MB) Git LFS ile saklanır:
+
+```bash
+git lfs install && git lfs pull
+flutter pub get
+flutter test
+flutter run            # veya: flutter run -d chrome
+```
+
+## Yayınlama
+
+- **GitHub Pages:** `main` dalına her push'ta `.github/workflows/pages.yml` web sürümünü derleyip yayınlar.
+  İlk kurulumda depo ayarlarında *Settings → Pages → Source: GitHub Actions* seçilmelidir.
+- **Android / macOS:** `.github/workflows/release.yml` APK ve DMG üretir; `v*` etiketlerinde GitHub Release oluşturur.

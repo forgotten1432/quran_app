@@ -1,12 +1,15 @@
 {
-    "name": "quran_app",
-    "short_name": "quran_app",
+    "name": "قۇرئان كەرىم",
+    "short_name": "قۇرئان",
     "start_url": ".",
+    "scope": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#FFF8E1",
+    "theme_color": "#00897B",
+    "description": "Kur'an-ı Kerim mushaf okuyucu",
+    "lang": "ug",
+    "dir": "rtl",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

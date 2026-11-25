@@ -1,30 +1,57 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:quran_app/data/quran_index.dart';
 import 'package:quran_app/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('quran_index', () {
+    test('114 sure ve 30 cüz var', () {
+      expect(surahs.length, 114);
+      expect(juzs.length, 30);
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('başlangıç sayfaları artan sırada', () {
+      for (final list in [surahs, juzs]) {
+        for (int i = 1; i < list.length; i++) {
+          expect(list[i].page, greaterThanOrEqualTo(list[i - 1].page),
+              reason: list[i].name);
+        }
+      }
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('sayfaya göre aktif sure bulunur', () {
+      expect(sectionForPage(surahs, 1).name, contains('الفاتحة'));
+      expect(sectionForPage(surahs, 2).name, contains('البقرة'));
+      expect(sectionForPage(surahs, 49).name, contains('البقرة'));
+      expect(sectionForPage(surahs, 50).name, contains('آل عمران'));
+      expect(sectionForPage(surahs, 610).name, startsWith('113.'));
+      expect(sectionForPage(surahs, 619).name, startsWith('113.'));
+    });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('aynı sayfada başlayan surelerden ilki seçilir', () {
+      // 87 (الأعلى) ve 88 (الغاشية) ikisi de 597. sayfada başlıyor.
+      expect(sectionForPage(surahs, 597).name, startsWith('87.'));
+    });
+
+    test('sayfaya göre aktif cüz bulunur', () {
+      expect(sectionForPage(juzs, 1).name, 'الجزء 1');
+      expect(sectionForPage(juzs, 21).name, 'الجزء 1');
+      expect(sectionForPage(juzs, 22).name, 'الجزء 2');
+      expect(sectionForPage(juzs, 600).name, 'الجزء 30');
+    });
+  });
+
+  testWidgets('açılış ekranı başlığı ve ilerlemeyi gösterir',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MyApp(home: SplashView(progress: 0.42)),
+    );
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.text('قۇرئان كەرىم'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.textContaining('42%'), findsOneWidget);
   });
 }
