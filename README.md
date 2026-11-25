@@ -14,6 +14,15 @@ Flutter ile yazılmış, PDF tabanlı Kur'an-ı Kerim mushaf okuyucusu (Uygurca 
   `←` / `Space` / `PageDown` sonraki sayfa, `→` / `PageUp` önceki sayfa,
   `Home` / `End` ilk / son sayfa, `G` sayfaya git, `B` yer imi, `Esc` menüyü kapat
 - Web'de PDF indirme ilerlemesi (yüzde) gösterilir
+- Menü 5 saniye dokunulmazsa kendiliğinden gizlenir
+- **Okuma modları:** normal, sepya ve gece (sayfa renkleri ters çevrilir, süsleme tonları korunur)
+- **Ekranı açık tutma:** okurken ekran kararmaz (ayarlardan kapatılabilir)
+- **Kaldığın yerden devam:** açılışta son okunan sure ve sayfa kartı
+- **Hatim takibi:** ekranda 3 sn kalan sayfa okundu sayılır; ilerleme yüzdesi,
+  okunmamış ilk sayfaya gitme, tamamlanan hatimlerin listesi
+- **Günlük hatırlatma** (Android / iOS / macOS): seçilen saatte bildirim
+- **Web'de çevrimdışı kullanım:** PDF ilk açılışta önbelleğe alınır (`web/sw.js`),
+  sonra internetsiz açılır
 
 ## Geliştirme
 

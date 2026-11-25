@@ -56,6 +56,36 @@
       setTimeout(function () { el.remove(); }, 300);
     });
   </script>
+  <script>
+    // Çevrimdışı kullanım: PDF ilk açılışta önbelleğe alınır.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(function (e) {
+        console.warn('Service worker kaydedilemedi', e);
+      });
+      // Tarayıcının büyük önbelleği (≈200 MB) silmemesini iste.
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(function () {});
+      }
+      // İlk ziyarette SW'den önce yüklenen dosyaları da önbelleğe aldır.
+      var sendLoadedUrls = function () {
+        navigator.serviceWorker.ready.then(function (reg) {
+          if (!reg.active) return;
+          var urls = performance.getEntriesByType('resource')
+            .map(function (e) { return e.name; })
+            .filter(function (u) {
+              return u.indexOf(location.origin) === 0 ||
+                u.indexOf('https://fonts.gstatic.com/') === 0;
+            });
+          urls.push(location.href);
+          reg.active.postMessage({ type: 'cache-urls', urls: urls });
+        });
+      };
+      window.addEventListener('flutter-first-frame', function () {
+        sendLoadedUrls();
+        setTimeout(sendLoadedUrls, 10000);
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
