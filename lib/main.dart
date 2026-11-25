@@ -6,69 +6,74 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'data/quran_index.dart';
+import 'services/khatm.dart';
+import 'services/reminder.dart';
+import 'settings.dart';
+import 'theme.dart';
+import 'widgets/khatm_sheet.dart';
+import 'widgets/settings_sheet.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   pdfrxFlutterInitialize();
   if (!kIsWeb) {
     // Tam ekran okuma modu (build içinde her seferinde çağrılmamalı).
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
-  runApp(const MyApp());
+  final settings = await AppSettings.load();
+  final khatm = await KhatmTracker.load();
+  runApp(MyApp(
+    settings: settings,
+    home: QuranReader(settings: settings, khatm: khatm),
+  ));
+  // Bildirim altyapısını arka planda hazırla; hatırlatma açıksa yeniden kur
+  // (saat dilimi veya uygulama güncellemesi sonrası).
+  unawaited(_restoreReminder(settings));
+}
+
+Future<void> _restoreReminder(AppSettings settings) async {
+  try {
+    final reminder = ReminderService.instance;
+    await reminder.init();
+    if (settings.reminderEnabled && reminder.isSupported) {
+      await reminder.enable(
+          hour: settings.reminderMinutes ~/ 60,
+          minute: settings.reminderMinutes % 60);
+    }
+  } catch (e) {
+    debugPrint('Hatırlatma kurulamadı: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, this.home = const QuranReader()});
+  const MyApp({super.key, this.settings, required this.home});
 
-  /// Testlerde farklı bir ana ekran verebilmek için.
+  /// null ise varsayılan (normal) tema kullanılır.
+  final AppSettings? settings;
   final Widget home;
-
-  // Renk paleti - merkezi tanımlama
-  static const Color primaryColor = Color(0xFF00897B); // Teal 600
-  static const Color primaryDark = Color(0xFF00695C); // Teal 800
-  static const Color accentColor = Color(0xFFFFD54F); // Amber 300
-  static const Color bgColor = Color(0xFFFFF8E1); // Amber 50
-  static const Color surfaceColor = Color(0xFFFFFDE7); // Lighter variant
-  static const Color textPrimary = Color(0xFF263238); // Blue Grey 900
-  static const Color textSecondary = Color(0xFF546E7A); // Blue Grey 600
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'قۇرئان كەرىم',
-      theme: ThemeData(
-        colorSchemeSeed: primaryColor,
-        useMaterial3: true,
-        scaffoldBackgroundColor: bgColor,
-        dialogTheme: DialogThemeData(
-          backgroundColor: bgColor,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          elevation: 8,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: bgColor,
-          foregroundColor: primaryColor,
-          elevation: 0,
-          scrolledUnderElevation: 2,
-        ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          backgroundColor: primaryDark,
-        ),
-      ),
-      builder: (context, child) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: child!,
+    final settings = this.settings;
+    Widget app(ReadingMode mode) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'قۇرئان كەرىم',
+          theme: buildTheme(mode),
+          builder: (context, child) {
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: child!,
+            );
+          },
+          home: home,
         );
-      },
-      home: home,
+    if (settings == null) return app(ReadingMode.light);
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) => app(settings.readingMode),
     );
   }
 }
@@ -91,6 +96,8 @@ class SplashView extends StatefulWidget {
 
 class _SplashViewState extends State<SplashView>
     with SingleTickerProviderStateMixin {
+  Palette get pal => Palette.of(context);
+
   late final AnimationController _animController;
   late final Animation<double> _fadeAnim;
   late final Animation<double> _scaleAnim;
@@ -127,7 +134,7 @@ class _SplashViewState extends State<SplashView>
     }
 
     return Scaffold(
-      backgroundColor: MyApp.bgColor,
+      backgroundColor: pal.bg,
       body: Center(
         child: FadeTransition(
           opacity: _fadeAnim,
@@ -140,15 +147,15 @@ class _SplashViewState extends State<SplashView>
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [MyApp.primaryColor, MyApp.primaryDark],
+                    gradient: LinearGradient(
+                      colors: [pal.primary, pal.primaryDark],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: MyApp.primaryColor.withValues(alpha: 0.3),
+                        color: pal.primary.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -158,12 +165,12 @@ class _SplashViewState extends State<SplashView>
                       size: 60, color: Colors.white),
                 ),
                 const SizedBox(height: 30),
-                const Text(
+                Text(
                   "قۇرئان كەرىم",
                   style: TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.bold,
-                    color: MyApp.primaryDark,
+                    color: pal.primaryDark,
                     letterSpacing: 2,
                   ),
                 ),
@@ -173,7 +180,7 @@ class _SplashViewState extends State<SplashView>
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w600,
-                    color: MyApp.textPrimary.withValues(alpha: 0.8),
+                    color: pal.textPrimary.withValues(alpha: 0.8),
                   ),
                 ),
                 const SizedBox(height: 50),
@@ -183,9 +190,8 @@ class _SplashViewState extends State<SplashView>
                     height: 40,
                     child: CircularProgressIndicator(
                       strokeWidth: 3,
-                      color: MyApp.primaryColor,
-                      backgroundColor:
-                          MyApp.primaryColor.withValues(alpha: 0.15),
+                      color: pal.primary,
+                      backgroundColor: pal.primary.withValues(alpha: 0.15),
                     ),
                   )
                 else
@@ -196,9 +202,8 @@ class _SplashViewState extends State<SplashView>
                       child: LinearProgressIndicator(
                         value: progress,
                         minHeight: 6,
-                        color: MyApp.primaryColor,
-                        backgroundColor:
-                            MyApp.primaryColor.withValues(alpha: 0.15),
+                        color: pal.primary,
+                        backgroundColor: pal.primary.withValues(alpha: 0.15),
                       ),
                     ),
                   ),
@@ -208,7 +213,7 @@ class _SplashViewState extends State<SplashView>
                       ? "يۈكلىنىۋاتىدۇ..."
                       : "يۈكلىنىۋاتىدۇ... $progressText",
                   textDirection: TextDirection.rtl,
-                  style: const TextStyle(color: MyApp.textSecondary),
+                  style: TextStyle(color: pal.textSecondary),
                 ),
               ],
             ),
@@ -223,7 +228,10 @@ class _SplashViewState extends State<SplashView>
 // QURAN READER - Ana Ekran
 // ═══════════════════════════════════════════════════════
 class QuranReader extends StatefulWidget {
-  const QuranReader({super.key});
+  const QuranReader({super.key, required this.settings, required this.khatm});
+
+  final AppSettings settings;
+  final KhatmTracker khatm;
 
   /// Mushafın 1. sayfasından önceki PDF sayfası sayısı (kapak vb.).
   static const int pageOffset = 5;
@@ -241,6 +249,10 @@ class QuranReader extends StatefulWidget {
 }
 
 class _QuranReaderState extends State<QuranReader> {
+  Palette get pal => Palette.of(context);
+  AppSettings get _settings => widget.settings;
+  KhatmTracker get _khatm => widget.khatm;
+
   PageController? _pageController;
   Orientation? _controllerOrientation;
   final TransformationController _transformationController =
@@ -265,6 +277,14 @@ class _QuranReaderState extends State<QuranReader> {
   DateTime? _currentBackPressTime;
   List<int> _bookmarks = [];
 
+  /// Bir sayfa bu süre ekranda kalınca hatimde "okundu" sayılır.
+  static const Duration readMarkDelay = Duration(seconds: 3);
+  Timer? _readMarkTimer;
+
+  /// "Kaldığın yerden devam" kartı (açılışta, son sayfa > 1 ise).
+  int? _resumePage;
+  Timer? _resumeHideTimer;
+
   /// Görüntülenebilir mushaf sayfası sayısı (PDF sayfaları - ofset).
   int get _pageCount => _totalPdfPages > QuranReader.pageOffset
       ? _totalPdfPages - QuranReader.pageOffset
@@ -274,12 +294,67 @@ class _QuranReaderState extends State<QuranReader> {
   void initState() {
     super.initState();
     _transformationController.addListener(_onTransformChanged);
+    _settings.addListener(_onSettingsChanged);
+    _khatm.addListener(_onKhatmChanged);
+    _applyWakelock();
     _init();
+  }
+
+  void _onSettingsChanged() {
+    _applyWakelock();
+    if (mounted) setState(() {});
+  }
+
+  void _onKhatmChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _applyWakelock() {
+    WakelockPlus.toggle(enable: _settings.keepScreenOn)
+        .catchError((Object e) => debugPrint('Wakelock ayarlanamadı: $e'));
+  }
+
+  // ───── Hatim: ekranda kalan sayfaları okundu işaretle ─────
+  List<int> get _visiblePages {
+    if (_isLandscape) {
+      final first = _currentMushafPage.isOdd
+          ? _currentMushafPage
+          : _currentMushafPage - 1;
+      return [first, first + 1]
+          .where((p) => p >= 1 && p <= _pageCount)
+          .toList();
+    }
+    return [_currentMushafPage];
+  }
+
+  void _scheduleReadMark() {
+    _readMarkTimer?.cancel();
+    if (_document == null) return;
+    _readMarkTimer = Timer(readMarkDelay, () {
+      if (mounted) _khatm.markRead(_visiblePages);
+    });
+  }
+
+  // ───── Kaldığın yerden devam kartı ─────
+  void _showResumeCard(int page) {
+    _resumePage = page;
+    _resumeHideTimer?.cancel();
+    _resumeHideTimer = Timer(const Duration(seconds: 7), _hideResumeCard);
+  }
+
+  void _hideResumeCard() {
+    _resumeHideTimer?.cancel();
+    if (mounted && _resumePage != null) setState(() => _resumePage = null);
   }
 
   @override
   void dispose() {
     _menuHideTimer?.cancel();
+    _readMarkTimer?.cancel();
+    _resumeHideTimer?.cancel();
+    _settings.removeListener(_onSettingsChanged);
+    _khatm.removeListener(_onKhatmChanged);
+    WakelockPlus.disable().catchError((Object _) {});
     _pageController?.dispose();
     _transformationController
       ..removeListener(_onTransformChanged)
@@ -292,6 +367,8 @@ class _QuranReaderState extends State<QuranReader> {
   // ───── Menü görünürlüğü ve otomatik gizleme ─────
   void _setMenuVisible(bool visible) {
     _menuHideTimer?.cancel();
+    // Menü açılınca "devam et" kartı alt menünün üstünü kapatmasın.
+    if (visible) _hideResumeCard();
     if (visible) _restartMenuHideTimer();
     if (visible != _isMenuVisible) {
       setState(() => _isMenuVisible = visible);
@@ -370,7 +447,9 @@ class _QuranReaderState extends State<QuranReader> {
         _bookmarks = bookmarks.where((p) => p >= 1 && p <= _pageCount).toList();
         _currentMushafPage = savedPage.clamp(1, _pageCount);
         _isLoading = false;
+        if (_currentMushafPage > 1) _showResumeCard(_currentMushafPage);
       });
+      _scheduleReadMark();
     } catch (e) {
       debugPrint("PDF yükleme hatası: $e");
       if (mounted) {
@@ -499,6 +578,7 @@ class _QuranReaderState extends State<QuranReader> {
       controller.jumpToPage(_indexForPage(page, _isLandscape));
     }
     _saveLastPage(page);
+    _scheduleReadMark();
   }
 
   /// Okuma yönünde [delta] kadar (spread) ilerler.
@@ -560,9 +640,8 @@ class _QuranReaderState extends State<QuranReader> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(title,
-                      style: const TextStyle(
-                          color: MyApp.primaryColor,
-                          fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          color: pal.primary, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
                   TextField(
                     onChanged: (value) {
@@ -575,20 +654,19 @@ class _QuranReaderState extends State<QuranReader> {
                     },
                     decoration: InputDecoration(
                       hintText: "ئىزدەش...",
-                      prefixIcon: const Icon(Icons.search,
-                          color: MyApp.primaryColor, size: 20),
+                      prefixIcon:
+                          Icon(Icons.search, color: pal.primary, size: 20),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                            color: MyApp.primaryColor.withValues(alpha: 0.3)),
+                            color: pal.primary.withValues(alpha: 0.3)),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                            color: MyApp.primaryColor, width: 1.5),
+                        borderSide: BorderSide(color: pal.primary, width: 1.5),
                       ),
                     ),
                   ),
@@ -598,21 +676,21 @@ class _QuranReaderState extends State<QuranReader> {
                 width: 400,
                 height: 400,
                 child: filteredItems.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text("نەتىجە تېپىلمىدى",
-                            style: TextStyle(color: MyApp.textSecondary)))
+                            style: TextStyle(color: pal.textSecondary)))
                     : ListView.separated(
                         controller: query.isEmpty ? scrollController : null,
                         itemCount: filteredItems.length,
                         separatorBuilder: (ctx, i) =>
-                            Divider(height: 1, color: Colors.grey.shade200),
+                            Divider(height: 1, color: pal.divider),
                         itemBuilder: (context, index) {
                           final item = filteredItems[index];
                           final isActive = identical(item, items[activeIndex]);
                           return Container(
                             decoration: BoxDecoration(
                               color: isActive
-                                  ? MyApp.primaryColor.withValues(alpha: 0.12)
+                                  ? pal.primary.withValues(alpha: 0.12)
                                   : null,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -623,9 +701,8 @@ class _QuranReaderState extends State<QuranReader> {
                                   fontWeight: isActive
                                       ? FontWeight.bold
                                       : FontWeight.normal,
-                                  color: isActive
-                                      ? MyApp.primaryColor
-                                      : MyApp.textPrimary,
+                                  color:
+                                      isActive ? pal.primary : pal.textPrimary,
                                   fontSize: 18,
                                 ),
                               ),
@@ -633,16 +710,15 @@ class _QuranReaderState extends State<QuranReader> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: MyApp.primaryColor
-                                      .withValues(alpha: 0.08),
+                                  color: pal.primary.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
                                   "${item.page}-بەت",
                                   style: TextStyle(
                                     color: isActive
-                                        ? MyApp.primaryColor
-                                        : MyApp.textSecondary,
+                                        ? pal.primary
+                                        : pal.textSecondary,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -657,8 +733,7 @@ class _QuranReaderState extends State<QuranReader> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text("تاقاش",
-                      style: TextStyle(color: MyApp.primaryColor)),
+                  child: Text("تاقاش", style: TextStyle(color: pal.primary)),
                 )
               ],
             );
@@ -691,9 +766,9 @@ class _QuranReaderState extends State<QuranReader> {
           }
 
           return AlertDialog(
-            title: const Text("بەتكە يۆتكىلىش",
-                style: TextStyle(
-                    color: MyApp.primaryColor, fontWeight: FontWeight.bold)),
+            title: Text("بەتكە يۆتكىلىش",
+                style:
+                    TextStyle(color: pal.primary, fontWeight: FontWeight.bold)),
             content: TextField(
               controller: controller,
               keyboardType: TextInputType.number,
@@ -703,28 +778,26 @@ class _QuranReaderState extends State<QuranReader> {
               decoration: InputDecoration(
                 hintText: "1 - $maxPage",
                 errorText: errorText,
-                prefixIcon:
-                    const Icon(Icons.numbers, color: MyApp.primaryColor),
+                prefixIcon: Icon(Icons.numbers, color: pal.primary),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: MyApp.primaryColor, width: 1.5),
+                  borderSide: BorderSide(color: pal.primary, width: 1.5),
                 ),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: const Text("بىكار قىلىش",
-                    style: TextStyle(color: MyApp.textSecondary)),
+                child: Text("بىكار قىلىش",
+                    style: TextStyle(color: pal.textSecondary)),
               ),
               FilledButton(
                 onPressed: handleSubmit,
                 style: FilledButton.styleFrom(
-                  backgroundColor: MyApp.primaryColor,
+                  backgroundColor: pal.primary,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
@@ -750,26 +823,25 @@ class _QuranReaderState extends State<QuranReader> {
             return AlertDialog(
               title: Row(
                 children: [
-                  const Icon(Icons.bookmarks, color: MyApp.primaryColor),
+                  Icon(Icons.bookmarks, color: pal.primary),
                   const SizedBox(width: 8),
-                  const Expanded(
+                  Expanded(
                     child: Text("ساقلانغانلار",
                         style: TextStyle(
-                            color: MyApp.primaryColor,
-                            fontWeight: FontWeight.bold)),
+                            color: pal.primary, fontWeight: FontWeight.bold)),
                   ),
                   if (_bookmarks.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: MyApp.primaryColor.withValues(alpha: 0.12),
+                        color: pal.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         "${_bookmarks.length}",
-                        style: const TextStyle(
-                            color: MyApp.primaryColor,
+                        style: TextStyle(
+                            color: pal.primary,
                             fontSize: 14,
                             fontWeight: FontWeight.bold),
                       ),
@@ -795,7 +867,7 @@ class _QuranReaderState extends State<QuranReader> {
                     : ListView.separated(
                         itemCount: _bookmarks.length,
                         separatorBuilder: (ctx, i) =>
-                            Divider(height: 1, color: Colors.grey.shade200),
+                            Divider(height: 1, color: pal.divider),
                         itemBuilder: (context, index) {
                           final pageNum = _bookmarks[index];
                           final surahName =
@@ -806,11 +878,8 @@ class _QuranReaderState extends State<QuranReader> {
                               width: 40,
                               height: 40,
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    MyApp.primaryColor,
-                                    MyApp.primaryDark
-                                  ],
+                                gradient: LinearGradient(
+                                  colors: [pal.primary, pal.primaryDark],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
@@ -830,8 +899,8 @@ class _QuranReaderState extends State<QuranReader> {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600)),
                             subtitle: Text(surahName,
-                                style: const TextStyle(
-                                    fontSize: 13, color: MyApp.textSecondary)),
+                                style: TextStyle(
+                                    fontSize: 13, color: pal.textSecondary)),
                             onTap: () => Navigator.pop(dialogContext, pageNum),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete_outline,
@@ -851,8 +920,7 @@ class _QuranReaderState extends State<QuranReader> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text("تاقاش",
-                      style: TextStyle(color: MyApp.primaryColor)),
+                  child: Text("تاقاش", style: TextStyle(color: pal.primary)),
                 )
               ],
             );
@@ -904,25 +972,25 @@ class _QuranReaderState extends State<QuranReader> {
 
     if (_document == null) {
       return Scaffold(
-        backgroundColor: MyApp.bgColor,
+        backgroundColor: pal.bg,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.error_outline, size: 60, color: Colors.red.shade300),
               const SizedBox(height: 16),
-              const Text("PDF يۈكلىنەلمىدى",
+              Text("PDF يۈكلىنەلمىدى",
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: MyApp.textPrimary)),
+                      color: pal.textPrimary)),
               const SizedBox(height: 20),
               FilledButton.icon(
                 onPressed: _retry,
                 icon: const Icon(Icons.refresh),
                 label: const Text("قايتا سىناش"),
                 style: FilledButton.styleFrom(
-                  backgroundColor: MyApp.primaryColor,
+                  backgroundColor: pal.primary,
                 ),
               ),
             ],
@@ -980,6 +1048,10 @@ class _QuranReaderState extends State<QuranReader> {
                     _pageForIndex(index, isLandscape).clamp(1, maxPage);
                 setState(() => _currentMushafPage = newPage);
                 _saveLastPage(newPage);
+                _scheduleReadMark();
+                if (_resumePage != null && newPage != _resumePage) {
+                  _hideResumeCard();
+                }
                 _transformationController.value = Matrix4.identity();
               },
               itemBuilder: (context, index) {
@@ -1011,9 +1083,18 @@ class _QuranReaderState extends State<QuranReader> {
               ],
             ),
           ),
+          if (_resumePage != null) _buildResumeCard(mediaQuery),
         ],
       ),
     );
+  }
+
+  /// Okuma moduna göre (sepya / gece) sayfaya renk filtresi uygular.
+  Widget _filtered(Widget page) {
+    final filter = pageColorFilter(_settings.readingMode);
+    return filter == null
+        ? page
+        : ColorFiltered(colorFilter: filter, child: page);
   }
 
   /// Mushaf sayfası -> PDF sayfa numarası (1 tabanlı).
@@ -1029,11 +1110,11 @@ class _QuranReaderState extends State<QuranReader> {
         child: Transform.scale(
           scale: 1.15,
           child: Center(
-            child: PdfPageView(
+            child: _filtered(PdfPageView(
               document: _document!,
               pageNumber: _pdfPageFor(mushafPage),
               alignment: Alignment.center,
-            ),
+            )),
           ),
         ),
       ),
@@ -1057,11 +1138,11 @@ class _QuranReaderState extends State<QuranReader> {
 
     Widget pageView(int mushafPage, Alignment alignment) {
       if (mushafPage > _pageCount) return const SizedBox.shrink();
-      return PdfPageView(
+      return _filtered(PdfPageView(
         document: _document!,
         pageNumber: _pdfPageFor(mushafPage),
         alignment: alignment,
-      );
+      ));
     }
 
     return Center(
@@ -1071,13 +1152,13 @@ class _QuranReaderState extends State<QuranReader> {
         child: Container(
           width: spreadWidth,
           height: spreadHeight,
-          color: MyApp.bgColor,
+          color: pal.bg,
           child: Row(
             // RTL içinde ilk çocuk sağda yer alır.
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: pageView(rightMushafPage, Alignment.centerLeft)),
-              Container(width: 2, color: Colors.black12),
+              Container(width: 2, color: pal.divider),
               Expanded(child: pageView(leftMushafPage, Alignment.centerRight)),
             ],
           ),
@@ -1097,7 +1178,7 @@ class _QuranReaderState extends State<QuranReader> {
       child: Container(
         padding: EdgeInsets.only(top: topInset),
         decoration: BoxDecoration(
-          color: MyApp.bgColor.withValues(alpha: 0.97),
+          color: pal.bg.withValues(alpha: 0.97),
           boxShadow: _isMenuVisible
               ? [
                   BoxShadow(
@@ -1115,13 +1196,12 @@ class _QuranReaderState extends State<QuranReader> {
               // Cüz butonu
               Expanded(
                 child: TextButton.icon(
-                  icon: const Icon(Icons.library_books,
-                      color: MyApp.primaryColor, size: 20),
+                  icon: Icon(Icons.library_books, color: pal.primary, size: 20),
                   label: Text(
                     sectionForPage(juzs, _currentMushafPage).name,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: MyApp.primaryColor,
+                    style: TextStyle(
+                        color: pal.primary,
                         fontWeight: FontWeight.bold,
                         fontSize: 14),
                   ),
@@ -1138,24 +1218,34 @@ class _QuranReaderState extends State<QuranReader> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [MyApp.primaryColor, MyApp.primaryDark],
+                      gradient: LinearGradient(
+                        colors: [pal.primary, pal.primaryDark],
                       ),
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: MyApp.primaryColor.withValues(alpha: 0.3),
+                          color: pal.primary.withValues(alpha: 0.3),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                    child: Text(
-                      "$_currentMushafPage",
-                      style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "$_currentMushafPage",
+                          style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
+                        if (_khatm.isRead(_currentMushafPage)) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.check_circle,
+                              size: 14, color: Colors.white70),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -1163,13 +1253,12 @@ class _QuranReaderState extends State<QuranReader> {
               // Sûre butonu
               Expanded(
                 child: TextButton.icon(
-                  icon: const Icon(Icons.list_alt,
-                      color: MyApp.primaryColor, size: 20),
+                  icon: Icon(Icons.list_alt, color: pal.primary, size: 20),
                   label: Text(
                     sectionForPage(surahs, _currentMushafPage).name,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: MyApp.primaryColor,
+                    style: TextStyle(
+                        color: pal.primary,
                         fontWeight: FontWeight.bold,
                         fontSize: 14),
                   ),
@@ -1195,7 +1284,7 @@ class _QuranReaderState extends State<QuranReader> {
       child: Container(
         padding: EdgeInsets.only(bottom: bottomInset),
         decoration: BoxDecoration(
-          color: MyApp.bgColor.withValues(alpha: 0.97),
+          color: pal.bg.withValues(alpha: 0.97),
           boxShadow: _isMenuVisible
               ? [
                   BoxShadow(
@@ -1214,18 +1303,15 @@ class _QuranReaderState extends State<QuranReader> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  const Text("1",
-                      style:
-                          TextStyle(fontSize: 11, color: MyApp.textSecondary)),
+                  Text("1",
+                      style: TextStyle(fontSize: 11, color: pal.textSecondary)),
                   Expanded(
                     child: SliderTheme(
                       data: SliderThemeData(
-                        activeTrackColor: MyApp.primaryColor,
-                        inactiveTrackColor:
-                            MyApp.primaryColor.withValues(alpha: 0.15),
-                        thumbColor: MyApp.primaryColor,
-                        overlayColor:
-                            MyApp.primaryColor.withValues(alpha: 0.12),
+                        activeTrackColor: pal.primary,
+                        inactiveTrackColor: pal.primary.withValues(alpha: 0.15),
+                        thumbColor: pal.primary,
+                        overlayColor: pal.primary.withValues(alpha: 0.12),
                         trackHeight: 3,
                         thumbShape:
                             const RoundSliderThumbShape(enabledThumbRadius: 7),
@@ -1246,50 +1332,35 @@ class _QuranReaderState extends State<QuranReader> {
                     ),
                   ),
                   Text("$maxPage",
-                      style: const TextStyle(
-                          fontSize: 11, color: MyApp.textSecondary)),
+                      style: TextStyle(fontSize: 11, color: pal.textSecondary)),
                 ],
               ),
             ),
             // Alt butonlar
             SizedBox(
-              height: kToolbarHeight,
+              height: kToolbarHeight + 4,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.bookmarks_outlined,
-                        color: MyApp.primaryColor, size: 22),
-                    label: const Text("ساقلانغانلار",
-                        style: TextStyle(
-                            color: MyApp.primaryColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13)),
-                    onPressed: _showBookmarksDialog,
+                  _menuButton(
+                    icon: Icons.bookmarks_outlined,
+                    label: "ساقلانغانلار",
+                    onTap: _showBookmarksDialog,
                   ),
-                  Container(
-                    width: 1,
-                    height: 24,
-                    color: Colors.grey.shade300,
+                  _menuButton(
+                    icon: isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                    label: isBookmarked ? "بەلگە ئېلىۋېتىش" : "بەت ساقلاش",
+                    active: isBookmarked,
+                    onTap: _toggleBookmark,
                   ),
-                  TextButton.icon(
-                    icon: Icon(
-                      isBookmarked ? Icons.bookmark : Icons.bookmark_border,
-                      color: isBookmarked
-                          ? MyApp.primaryColor
-                          : MyApp.textSecondary,
-                      size: 22,
-                    ),
-                    label: Text(
-                      isBookmarked ? "بەلگە ئېلىۋېتىش" : "بەت ساقلاش",
-                      style: TextStyle(
-                          color: isBookmarked
-                              ? MyApp.primaryColor
-                              : MyApp.textSecondary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13),
-                    ),
-                    onPressed: _toggleBookmark,
+                  _menuButton(
+                    icon: Icons.auto_stories_outlined,
+                    label: "خەتمە ${(_khatm.progress(maxPage) * 100).floor()}%",
+                    onTap: _openKhatm,
+                  ),
+                  _menuButton(
+                    icon: Icons.tune,
+                    label: "تەڭشەكلەر",
+                    onTap: _openSettings,
                   ),
                 ],
               ),
@@ -1298,5 +1369,108 @@ class _QuranReaderState extends State<QuranReader> {
         ),
       ),
     );
+  }
+
+  Widget _menuButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    final color = active ? pal.primary : pal.textSecondary;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: pal.primary, size: 22),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResumeCard(MediaQueryData mediaQuery) {
+    final page = _resumePage!;
+    final surah = sectionForPage(surahs, page).name;
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: mediaQuery.padding.bottom + 24,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Material(
+            color: pal.surface,
+            elevation: 6,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 8, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.history, color: pal.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("ئاخىرقى ئوقۇغان يېرىڭىز",
+                            style: TextStyle(
+                                fontSize: 12, color: pal.textSecondary)),
+                        Text("$surah · $page-بەت",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: pal.textPrimary)),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _hideResumeCard();
+                      _goToPage(1);
+                    },
+                    child: Text("باشتىن",
+                        style: TextStyle(color: pal.textSecondary)),
+                  ),
+                  FilledButton(
+                    onPressed: _hideResumeCard,
+                    style: FilledButton.styleFrom(backgroundColor: pal.primary),
+                    child: const Text("داۋاملاشتۇرۇش"),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───── Hatim ve ayarlar sayfaları ─────
+  Future<void> _openKhatm() async {
+    _menuHideTimer?.cancel();
+    final page = await showKhatmSheet(context,
+        khatm: _khatm, totalPages: _pageCount, currentPage: _currentMushafPage);
+    if (page != null) _goToPage(page);
+  }
+
+  Future<void> _openSettings() async {
+    _menuHideTimer?.cancel();
+    await showSettingsSheet(context, settings: _settings);
+    if (mounted && _isMenuVisible) _restartMenuHideTimer();
   }
 }
