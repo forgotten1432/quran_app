@@ -147,12 +147,7 @@ class _SplashViewState extends State<SplashView>
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [pal.primary, pal.primaryDark],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(30),
+                    borderRadius: BorderRadius.circular(28),
                     boxShadow: [
                       BoxShadow(
                         color: pal.primary.withValues(alpha: 0.3),
@@ -161,8 +156,10 @@ class _SplashViewState extends State<SplashView>
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.menu_book_rounded,
-                      size: 60, color: Colors.white),
+                  child: Image.asset('assets/app_icon.png',
+                      width: 120,
+                      height: 120,
+                      filterQuality: FilterQuality.medium),
                 ),
                 const SizedBox(height: 30),
                 Text(
